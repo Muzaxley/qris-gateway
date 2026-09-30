@@ -1,69 +1,57 @@
-import Image from "next/image";
+import React from 'react';
 
 export default function Home() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center items-center p-4 text-black">
+      <div className="max-w-2xl w-full bg-white rounded-xl shadow-xl overflow-hidden p-8 space-y-6">
+        <h1 className="text-3xl font-bold text-gray-900 text-center">API QRIS Gateway</h1>
+        <p className="text-gray-600 text-center">
+          Solusi payment gateway instant untuk developer Bot Telegram & WhatsApp.
+        </p>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+          <h2 className="text-lg font-semibold text-blue-800 mb-2">🚀 Cara Pakai (Untuk Developer)</h2>
+          
+          <div className="space-y-4">
+            <div>
+              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold mb-1">1. DAFTAR</span>
+              <pre className="bg-gray-800 text-green-400 p-3 rounded text-sm overflow-x-auto">
+{`curl -X POST /api/v1/merchant/register \\
+-H "Content-Type: application/json" \\
+-d '{"name":"Bot Pulsa","email":"bot@email.com"}'`}
+              </pre>
+              <p className="text-xs text-gray-500 mt-1">Dapatkan <code className="bg-gray-100 px-1 rounded">api_key</code> dan saldo gratis Rp 10.000 dari response di atas.</p>
+            </div>
+
+            <div>
+              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold mb-1">2. BUAT QRIS</span>
+              <pre className="bg-gray-800 text-green-400 p-3 rounded text-sm overflow-x-auto">
+{`curl -X POST /api/v1/payment/create \\
+-H "Authorization: Bearer QG-API-KEY-ANDA" \\
+-H "Content-Type: application/json" \\
+-d '{"amount":50000,"description":"Deposit Saldo","callbackUrl":"https://bot-anda.com/webhook"}'`}
+              </pre>
+              <p className="text-xs text-gray-500 mt-1">Sistem kami akan memotong saldo Anda Rp 500 dan merespons URL QRIS yang bisa di-scan user.</p>
+            </div>
+
+            <div>
+              <span className="inline-block bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-bold mb-1">3. TERIMA CALLBACK</span>
+              <p className="text-sm text-gray-700">Jika user membayar QRIS, kami mengirim POST ke <code className="bg-gray-100 px-1 rounded">callbackUrl</code> bot Anda:</p>
+              <pre className="bg-gray-800 text-green-400 p-3 rounded text-sm overflow-x-auto">
+{`{
+  "order_id": "QG-173822-ABCD",
+  "amount": 50000,
+  "status": "success"
+}`}
+              </pre>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <div className="text-center text-sm text-gray-500 pt-4 border-t">
+          Dikembangkan oleh MUSAA.ID
         </div>
-      </main>
+      </div>
     </div>
   );
 }
