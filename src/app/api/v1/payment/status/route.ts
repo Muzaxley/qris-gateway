@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server';
-import { readDB } from '@/lib/db';
+import { getMerchantByApiKey, getTransactionByOrderId, listTransactions } from '@/lib/db';
 
 export async function GET(req: Request) {
   try {
     const authHeader = req.headers.get('authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized: Missing Bearer token' }, { status: 401 });
     }
 
     const apiKey = authHeader.split(' ')[1];
-    const db = readDB();
-    const merchant = db.merchants.find(m => m.apiKey === apiKey);
+    const merchant = await getMerchantByApiKey(apiKey);
 
     if (!merchant) {
       return NextResponse.json({ error: 'Invalid API key' }, { status: 401 });
@@ -20,20 +19,27 @@ export async function GET(req: Request) {
     const orderId = searchParams.get('order_id');
 
     if (orderId) {
-      const tx = db.transactions.find(t => t.orderId === orderId && t.merchantId === merchant.id);
-      if (!tx) {
+      const tx = await getTransactionByOrderId(orderId);
+      if (!tx || tx.merchantId !== merchant.id) {
         return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
       }
       return NextResponse.json({
         status: 'success',
-        data: { order_id: tx.orderId, amount: tx.amount, status: tx.status, qris_url: tx.qrisUrl, created_at: tx.createdAt }
+        data: {
+          order_id: tx.orderId,
+          amount: tx.amount,
+          status: tx.status,
+          description: tx.description,
+          qris_url: tx.qrisUrl,
+          deeplink_url: tx.deeplinkUrl || null,
+          created_at: tx.createdAt,
+          updated_at: tx.updatedAt
+        }
       });
     }
 
     // List all transactions
-    const merchantTxs = db.transactions.filter(t => t.merchantId === merchant.id)
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 50);
+    const merchantTxs = await listTransactions(merchant.id, 50);
 
     return NextResponse.json({
       status: 'success',
@@ -41,11 +47,12 @@ export async function GET(req: Request) {
         order_id: tx.orderId,
         amount: tx.amount,
         status: tx.status,
+        description: tx.description,
         created_at: tx.createdAt
       }))
     });
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 });
   }
 }

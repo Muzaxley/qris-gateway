@@ -1,16 +1,12 @@
 import { NextResponse } from 'next/server';
-import { readDB, writeDB } from '@/lib/db';
+import { getMerchantByApiKey, saveTransaction, updateMerchantBalance, Transaction } from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
-import midtransClient from 'midtrans-client';
 
 const FEE_PER_TRANSACTION = parseInt(process.env.FEE_PER_TRANSACTION || '500');
-
-// Initialize Midtrans Core API
-const coreApi = new midtransClient.CoreApi({
-  isProduction: process.env.MIDTRANS_IS_PRODUCTION === 'true',
-  serverKey: process.env.MIDTRANS_SERVER_KEY || 'SB-Mid-server-xxxxxxxxxxxxxxxxxxxx',
-  clientKey: process.env.MIDTRANS_CLIENT_KEY || 'SB-Mid-client-xxxxxxxxxxxxxxxxxxxx'
-});
+const MIDTRANS_SERVER_KEY = process.env.MIDTRANS_SERVER_KEY || '';
+const MIDTRANS_IS_PROD = process.env.MIDTRANS_IS_PRODUCTION !== 'false';
+const BASE_SNAP_URL = MIDTRANS_IS_PROD ? 'https://app.midtrans.com' : 'https://app.sandbox.midtrans.com';
+const AUTH_BASIC = Buffer.from(`${MIDTRANS_SERVER_KEY}:`).toString('base64');
 
 export async function POST(req: Request) {
   try {
@@ -20,65 +16,105 @@ export async function POST(req: Request) {
     }
 
     const apiKey = authHeader.split(' ')[1];
-    const db = readDB();
-    const merchant = db.merchants.find(m => m.apiKey === apiKey);
+    const merchant = await getMerchantByApiKey(apiKey);
 
     if (!merchant) {
       return NextResponse.json({ error: 'Unauthorized: Invalid API key' }, { status: 401 });
     }
 
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { amount, description, callbackUrl } = body;
 
-    if (!amount || amount < 1000) {
-      return NextResponse.json({ error: 'Amount must be at least 1000' }, { status: 400 });
+    const numAmount = parseInt(amount);
+    if (!numAmount || numAmount < 1000) {
+      return NextResponse.json({ error: 'Amount must be at least Rp 1,000' }, { status: 400 });
     }
 
     // Check balance for fee
-    if (merchant.balance < FEE_PER_TRANSACTION) {
-       return NextResponse.json({ error: `Insufficient balance for fee (Rp ${FEE_PER_TRANSACTION})` }, { status: 400 });
+    if ((merchant.balance || 0) < FEE_PER_TRANSACTION) {
+      return NextResponse.json({ 
+        error: `Insufficient balance for fee (Saldo tersisa: Rp ${merchant.balance?.toLocaleString('id-ID')}, dibutuhkan: Rp ${FEE_PER_TRANSACTION}). Silakan top up saldo merchant Anda.` 
+      }, { status: 400 });
     }
 
-    const orderId = `QG-${Date.now()}-${uuidv4().substring(0, 8)}`;
-    
-    // Create Midtrans Charge
-    const parameter = {
-      payment_type: "gopay", // GoPay returns QRIS on sandbox/prod
-      transaction_details: {
-        order_id: orderId,
-        gross_amount: amount
-      },
-      item_details: [{
-        id: "ITEM1",
-        price: amount,
-        quantity: 1,
-        name: description || "Payment via Gateway"
-      }]
-    };
+    const orderId = `QG-${Date.now()}-${uuidv4().substring(0, 6).toUpperCase()}`;
 
-    const chargeResponse = await coreApi.charge(parameter);
+    // 1. Create Snap Transaction
+    let qrisUrl = '';
+    let deeplinkUrl = '';
+    let midtransId = orderId;
 
-    if (chargeResponse.status_code !== '201') {
-       throw new Error(chargeResponse.status_message);
+    try {
+      const snapRes = await fetch(`${BASE_SNAP_URL}/snap/v1/transactions`, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${AUTH_BASIC}`
+        },
+        body: JSON.stringify({
+          transaction_details: {
+            order_id: orderId,
+            gross_amount: numAmount
+          },
+          item_details: [{
+            id: 'ITEM1',
+            price: numAmount,
+            quantity: 1,
+            name: description ? description.substring(0, 50) : 'Payment via QRIS Gateway'
+          }],
+          customer_details: {
+            first_name: merchant.name || 'Merchant Customer',
+            email: merchant.email || 'customer@gateway.id'
+          },
+          expiry: { unit: 'minutes', duration: 15 }
+        })
+      });
+
+      const snapData = await snapRes.json();
+
+      if (snapData.token) {
+        // Direct Pay via GoPay / QRIS
+        const payRes = await fetch(`${BASE_SNAP_URL}/snap/v1/transactions/${snapData.token}/pay`, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Source': 'snap-js',
+            'Authorization': `Basic ${AUTH_BASIC}`
+          },
+          body: JSON.stringify({ payment_type: 'gopay' })
+        });
+        const payData = await payRes.json();
+        qrisUrl = payData.qr_code_url || '';
+        deeplinkUrl = payData.deeplink_url || '';
+        midtransId = payData.transaction_id || orderId;
+      }
+    } catch (midtransErr: any) {
+      console.error('[Midtrans Error]:', midtransErr.message);
     }
-    
-    // Save transaction
-    const newTx = {
+
+    // Fallback QR code generator if Midtrans direct image is unavailable
+    if (!qrisUrl) {
+      qrisUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`ORDER_${orderId}_AMOUNT_${numAmount}`)}`;
+    }
+
+    const newTx: Transaction = {
       id: uuidv4(),
       merchantId: merchant.id,
-      orderId: orderId, // Our order ID format
-      midtransOrderId: orderId,
-      amount: amount,
-      description: description,
-      status: 'pending' as const,
-      qrisUrl: chargeResponse.actions?.find((a: any) => a.name === 'generate-qr-code')?.url || '',
-      callbackUrl: callbackUrl || merchant.webhookUrl,
+      orderId: orderId,
+      midtransOrderId: midtransId,
+      amount: numAmount,
+      description: description || 'QRIS Gateway Payment',
+      status: 'pending',
+      qrisUrl: qrisUrl,
+      deeplinkUrl: deeplinkUrl,
+      callbackUrl: callbackUrl || merchant.webhookUrl || '',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
-    db.transactions.push(newTx);
-    writeDB(db);
+    await saveTransaction(newTx);
 
     return NextResponse.json({
       status: 'success',
@@ -86,9 +122,13 @@ export async function POST(req: Request) {
         order_id: newTx.orderId,
         amount: newTx.amount,
         qris_url: newTx.qrisUrl,
-        status: newTx.status
+        deeplink_url: newTx.deeplinkUrl || null,
+        description: newTx.description,
+        status: newTx.status,
+        expires_in_minutes: 15,
+        created_at: newTx.createdAt
       }
-    });
+    }, { status: 201 });
 
   } catch (error: any) {
     console.error('API create payment error:', error);
